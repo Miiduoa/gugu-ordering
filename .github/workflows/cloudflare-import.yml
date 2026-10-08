@@ -1,0 +1,114 @@
+name: Cloudflare production acceptance
+on:
+  push:
+    branches: [cloudflare-production]
+    paths: ['.github/workflows/cloudflare-import.yml', '.cf-release/**', 'cloudflare/**']
+permissions:
+  contents: write
+concurrency:
+  group: gugu-cloudflare-acceptance
+  cancel-in-progress: false
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v6
+      - name: Import checksum-verified production source and menu photographs
+        run: |
+          python - <<'PY'
+          import pathlib,json,hashlib,lzma,base64,shutil
+          root=pathlib.Path('.'); src=root/'.cf-release'; dest=root/'cloudflare'
+          if not src.exists():
+              print('Source already imported.')
+              raise SystemExit(0)
+          m=json.loads((src/'manifest.json').read_text()); chunks=[]
+          for item in m['parts']:
+              b=(src/item['name']).read_bytes().strip()
+              assert hashlib.sha256(b).hexdigest()==item['sha256'],item['name']
+              chunks.append(b)
+          raw=base64.b64decode(b''.join(chunks),validate=True)
+          assert hashlib.sha256(raw).hexdigest()==m['sha256']
+          files=json.loads(lzma.decompress(raw));assert len(files)==m['files']
+          for name,content in files.items():
+              rel=pathlib.PurePosixPath(name)
+              assert not rel.is_absolute() and '..' not in rel.parts
+              assert '.git' not in rel.parts and '.github' not in rel.parts
+              assert rel.name not in ('.env','.dev.vars','local-access.txt')
+              p=dest/rel;p.parent.mkdir(parents=True,exist_ok=True);p.write_text(content)
+          old=b''.join(p.read_bytes().strip() for p in sorted((root/'.cf-import').glob('part-*.b64')))
+          text=lzma.LZMADecompressor().decompress(base64.b64decode(old)).decode('utf-8',errors='ignore')
+          decoder=json.JSONDecoder(); pos=1; recovered={}
+          while pos<len(text):
+              while pos<len(text) and text[pos] in ', \n\r\t':pos+=1
+              try:
+                  key,pos=decoder.raw_decode(text,pos)
+                  while text[pos] in ' \n\r\t:':pos+=1
+                  val,pos=decoder.raw_decode(text,pos)
+                  recovered[key]=val
+              except (ValueError,IndexError):break
+          for name,digest in m['photos'].items():
+              val=recovered['public/images/'+name];assert val['encoding']=='base64'
+              b=base64.b64decode(val['content']);assert hashlib.sha256(b).hexdigest()==digest
+              p=dest/'public'/'images'/name;p.parent.mkdir(parents=True,exist_ok=True);p.write_bytes(b)
+          # Terminate only the test's own Wrangler process group, not unrelated services.
+          p=dest/'scripts/run-browser.mjs';s=p.read_text()
+          s=s.replace("spawn('npx',['wrangler','dev'", "spawn(process.execPath,['node_modules/wrangler/bin/wrangler.js','dev'")
+          s=s.replace("{env:{...process.env,CI:","{detached:true,env:{...process.env,CI:")
+          s=s.replace("child.kill('SIGTERM');log.end();", "try{process.kill(-child.pid,'SIGTERM')}catch{};log.end();")
+          p.write_text(s)
+          shutil.rmtree(src);shutil.rmtree(root/'.cf-import')
+          print('Imported',len(files),'source files and',len(m['photos']),'verified menu photographs.')
+          PY
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Install pinned toolchain and format readable source
+        working-directory: cloudflare
+        run: |
+          npm install --no-audit --no-fund
+          npx prettier --write 'src/*.mjs' 'public/static/*.{js,css}' 'scripts/*.mjs' 'tests/*.mjs' '*.json*'
+          npm run build
+      - name: Commit only isolated production branch
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare .cf-release .cf-import 2>/dev/null || git add -A cloudflare
+          git add -u
+          if ! git diff --cached --quiet; then
+            git commit -m 'Add full D1 ordering application, real food images and production regression suite'
+            git push origin HEAD:cloudflare-production
+          fi
+      - name: Transaction, authorization and restore regression
+        working-directory: cloudflare
+        run: npm test
+      - name: Install browser acceptance dependencies
+        working-directory: cloudflare
+        run: |
+          python -m pip install -r requirements-test.txt
+          python -m playwright install --with-deps chromium
+      - name: Real workerd and D1 HTTPS browser acceptance
+        working-directory: cloudflare
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: npm run test:browser
+      - name: Bundle source without credentials or test databases
+        if: always()
+        run: |
+          python - <<'PY'
+          import pathlib,zipfile
+          root=pathlib.Path('cloudflare')
+          with zipfile.ZipFile('gugu-cloudflare-complete.zip','w',zipfile.ZIP_DEFLATED) as z:
+              for p in root.rglob('*'):
+                  if not p.is_file() or any(x in p.parts for x in ('node_modules','.wrangler','test-artifacts','__pycache__')):continue
+                  if p.name in ('.dev.vars','.env'):continue
+                  z.write(p,p.as_posix())
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gugu-cloudflare-acceptance
+          path: |
+            cloudflare/test-artifacts/
+            gugu-cloudflare-complete.zip
+          retention-days: 7
