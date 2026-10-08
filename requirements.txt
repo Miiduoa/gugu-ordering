@@ -1,0 +1,9 @@
+# Versions used for this release's Python / HTTP tests.
+fastapi==0.128.2
+uvicorn==0.48.0
+starlette==0.50.0
+pydantic==2.13.5
+argon2-cffi==25.1.0
+python-dotenv==1.2.2
+qrcode==8.2
+Pillow==12.3.0

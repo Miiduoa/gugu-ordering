@@ -1,0 +1,19 @@
+name: gugu-demo
+services:
+  app:
+    build: .
+    ports:
+      - "127.0.0.1:8000:8000"
+    environment:
+      APP_MODE: demo
+      DATA_DIR: /app/data
+      PUBLIC_ORIGIN: http://127.0.0.1:8000
+      COOKIE_SECURE: "0"
+      ALLOWED_HOSTS: 127.0.0.1,localhost
+    volumes:
+      - demo-data:/app/data
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+volumes:
+  demo-data:

@@ -1,0 +1,14 @@
+.env
+.env.live
+.env.*.local
+.venv/
+data/
+*.sqlite3
+*.sqlite3-*
+.secret
+local-access.txt
+__pycache__/
+*.pyc
+.pytest_cache/
+.DS_Store
+*.log

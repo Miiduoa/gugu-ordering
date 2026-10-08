@@ -1,0 +1,29 @@
+# Isolated password-gated staging. Never use ephemeral SQLite for real orders.
+services:
+  - type: web
+    name: gugu-ordering-staging
+    runtime: python
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.cloud:app --host 0.0.0.0 --port $PORT --workers 1 --no-access-log
+    healthCheckPath: /api/health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.5
+      - key: APP_MODE
+        value: demo
+      - key: DATA_DIR
+        value: /tmp/gugu-staging
+      - key: COOKIE_SECURE
+        value: '1'
+      - key: PUBLIC_ORIGIN
+        sync: false
+      - key: ALLOWED_HOSTS
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: STAGING_PASSWORD_HASH
+        sync: false
+      - key: INITIAL_OWNER_PASSWORD_HASH
+        sync: false

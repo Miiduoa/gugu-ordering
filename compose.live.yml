@@ -1,0 +1,47 @@
+# Separate volumes prevent turning sample orders into a live database.
+name: gugu-live
+services:
+  app:
+    build: .
+    environment:
+      APP_MODE: live
+      DATA_DIR: /app/data
+      PUBLIC_ORIGIN: https://${DOMAIN:?Set DOMAIN in .env.live}
+      COOKIE_SECURE: "1"
+      ALLOWED_HOSTS: ${DOMAIN},127.0.0.1,app
+    command: ["python","-m","uvicorn","app.main:app","--host","0.0.0.0","--port","8000","--workers","1","--proxy-headers","--forwarded-allow-ips","10.89.0.2"]
+    volumes:
+      - live-data:/app/data
+    networks:
+      internal:
+        ipv4_address: 10.89.0.3
+    restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+  caddy:
+    image: caddy:2
+    environment:
+      DOMAIN: ${DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    networks:
+      internal:
+        ipv4_address: 10.89.0.2
+    depends_on:
+      app:
+        condition: service_healthy
+    restart: unless-stopped
+volumes:
+  live-data:
+  caddy-data:
+  caddy-config:
+networks:
+  internal:
+    ipam:
+      config:
+        - subnet: 10.89.0.0/24
