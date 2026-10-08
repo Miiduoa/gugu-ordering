@@ -1,0 +1,29 @@
+{
+  "name": "gugu-ordering-cloudflare",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.16.0"
+  },
+  "scripts": {
+    "dev": "wrangler dev",
+    "build": "node --check src/worker.mjs && node --check public/static/app.js",
+    "deploy": "wrangler deploy",
+    "test": "node --test tests/system.test.mjs tests/restore.test.mjs",
+    "test:browser": "node scripts/run-browser.mjs",
+    "backup:sql": "wrangler d1 export DB --remote --output=gugu-full-backup.sql",
+    "restore:prepare": "node scripts/restore.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.148.0",
+    "prettier": "3.6.2"
+  },
+  "cloudflare": {
+    "bindings": {
+      "DB": {
+        "description": "穀穀專用的全新 D1 資料庫；維持 Free，不選擇其他專案的資料庫。"
+      }
+    }
+  }
+}

@@ -1,0 +1,100 @@
+"""Browser acceptance against an isolated HTTPS Worker instance. Never point at a live shop."""
+import os,json,time
+from pathlib import Path
+from datetime import date,timedelta
+from playwright.sync_api import sync_playwright,expect
+BASE=os.getenv('TEST_BASE','https://localhost:8788')
+OUT=Path(os.getenv('TEST_ARTIFACTS','test-artifacts'));OUT.mkdir(parents=True,exist_ok=True)
+PASSWORD='Browser-test-only-long-password!'
+checks=[]
+def passed(s):checks.append(s);print('PASS:',s,flush=True)
+with sync_playwright() as p:
+    browser=p.chromium.launch(**({'executable_path':os.environ['CHROMIUM_PATH']} if os.getenv('CHROMIUM_PATH') else {}),args=['--no-sandbox'])
+    ctx=browser.new_context(ignore_https_errors=True,viewport={'width':1380,'height':1000})
+    staff=ctx.new_page();errors=[];staff.on('pageerror',lambda e:errors.append(str(e)))
+    mobile=browser.new_context(ignore_https_errors=True,viewport={'width':390,'height':844},is_mobile=True,has_touch=True)
+    customer=mobile.new_page();customer.on('pageerror',lambda e:errors.append(str(e)))
+    def post(path,body):return staff.evaluate("async ({path,body})=>{let r=await api(path,body);return r}",{'path':path,'body':body})
+    try:
+        customer.goto(BASE+'/');expect(customer.locator('.card')).to_have_count(17)
+        expect(customer.locator('.status')).to_contain_text('尚未開放')
+        assert customer.locator('.card img').count()==12
+        customer.screenshot(path=str(OUT/'customer-mobile.png'),full_page=True)
+        assert customer.evaluate('document.documentElement.scrollWidth<=window.innerWidth')
+        passed('public menu uses real menu prices and food photos, no demo password')
+        staff.goto(BASE+'/staff/');expect(staff.locator('h1')).to_have_text('建立店長帳號')
+        staff.locator('#setup-key').fill('test-only-activation-code-not-a-deployment-secret')
+        staff.locator('#username').fill('owner');staff.locator('#password').fill(PASSWORD)
+        staff.get_by_role('button',name='建立管理者帳號',exact=True).click()
+        expect(staff.locator('h1')).to_have_text('店家登入')
+        staff.locator('#username').fill('owner');staff.locator('#password').fill(PASSWORD)
+        staff.get_by_role('button',name='登入',exact=True).click();expect(staff.locator('#admin-tabs')).to_be_visible()
+        assert all(c['secure'] and c['httpOnly'] for c in ctx.cookies() if c['name']=='gugu_session')
+        passed('one-time activation and native browser password derivation / secure login')
+        s=staff.evaluate("api('/api/admin/settings')")
+        today=staff.evaluate("api('/api/store').then(x=>x.today)")
+        tomorrow=str(date.fromisoformat(today)+timedelta(days=1))
+        post('/api/admin/settings',{'version':s['version'],'hours':{str(i):[['00:00','23:59']] for i in range(7)}})
+        staff.locator('[data-tab="products"]').click();expect(staff.locator('[data-edit="chicken"]')).to_be_visible()
+        staff.locator('[data-edit="chicken"]').click();staff.locator('#edit-product input[name="remaining"]').fill('20')
+        staff.get_by_role('button',name='儲存餐點',exact=True).click();expect(staff.locator('#modal')).not_to_be_visible()
+        pp=staff.evaluate("api('/api/admin/products?day='+state.day).then(x=>x.products.find(p=>p.id==='chicken'))")
+        post('/api/admin/products/chicken',{'version':pp['version'],'remaining':20,'expected_remaining':0,'day':tomorrow})
+        passed('owner changes actual stock with optimistic quantity checks')
+        staff.locator('[data-tab="orders"]').click();staff.once('dialog',lambda d:d.accept())
+        staff.locator('#toggle-open').click();expect(staff.locator('#admin-content .status')).to_have_text('線上接單中')
+        customer.reload();expect(customer.locator('.status')).to_have_text('現在開放點餐')
+        customer.locator('[data-add="chicken"]').click();customer.get_by_role('button',name='加入餐點',exact=True).click()
+        customer.locator('#checkout').click();customer.locator('#pickup-day').select_option(tomorrow)
+        expect(customer.locator('#pickup-slot option').first).not_to_have_text('正在查詢…')
+        customer.locator('#buyer-name').fill('端對端驗收');customer.locator('#buyer-phone').fill('0900000000')
+        customer.locator('#own-boxes').fill('1');customer.locator('input[name="consent"]').check()
+        customer.screenshot(path=str(OUT/'checkout-mobile.png'),full_page=True)
+        customer.get_by_role('button',name='送出訂單・到店付款',exact=True).click()
+        customer.wait_for_url('**/order/**');expect(customer.locator('.total')).to_contain_text('113')
+        oid=customer.url.split('/order/')[1].split('#')[0]
+        passed('mobile checkout, future pickup and correct self-container discount')
+        # Select actual pickup day; all pending future orders must already appear even before doing so.
+        staff.evaluate('adminOrders()');expect(staff.locator(f'[data-id="{oid}"][data-action="accept"]')).to_be_visible()
+        staff.locator('#admin-day').fill(tomorrow);staff.locator('#admin-day').dispatch_event('change')
+        for a in ['accept','prepare','ready']:
+            b=staff.locator(f'[data-id="{oid}"][data-action="{a}"]');expect(b).to_be_visible();b.click()
+        staff.screenshot(path=str(OUT/'staff-desktop.png'),full_page=True)
+        staff.once('dialog',lambda d:d.accept());staff.locator(f'[data-id="{oid}"][data-action="paid"]').click()
+        expect(staff.locator(f'[data-id="{oid}"][data-action="complete"]')).to_be_visible()
+        staff.locator(f'[data-id="{oid}"][data-action="complete"]').click()
+        customer.reload();expect(customer.locator('h2')).to_have_text('已取餐')
+        customer.screenshot(path=str(OUT/'order-mobile.png'),full_page=True)
+        passed('separate customer/staff sessions: accept, prepare, ready, cash and handover')
+        staff.locator('[data-tab="products"]').click();staff.locator('[data-edit="chicken"]').click()
+        staff.locator('#photo-upload').set_input_files(str(Path('public/images/chicken.webp')))
+        expect(staff.locator('#modal')).not_to_be_visible(timeout=15000)
+        photo=staff.evaluate("api('/api/admin/products?day='+state.day).then(x=>x.products.find(p=>p.id==='chicken').photo)")
+        assert photo.startswith('/api/media/')
+        image=ctx.request.get(BASE+photo);assert image.status==200 and len(image.body())>100
+        passed('browser photo upload re-encodes and stores the real image in D1')
+        staff.locator('[data-tab="settings"]').click();staff.locator('#backup').click()
+        staff.locator('#backup-form input[name="password"]').fill(PASSWORD)
+        with staff.expect_download() as downloaded:staff.get_by_role('button',name='下載完整備份',exact=True).click()
+        data=json.loads(downloaded.value.path().read_text()) if hasattr(downloaded.value.path(),'read_text') else json.loads(Path(downloaded.value.path()).read_text())
+        assert data['format']=='gugu-d1-v2' and len(data['tables']['orders'])==1 and len(data['tables']['media'])==1
+        assert 'sessions' not in data['tables']
+        passed('reauthenticated backup includes completed order and binary photo, not sessions')
+        staff.locator('[data-tab="account"]').click()
+        staff.locator('#account-form input[name="username"]').fill('manager')
+        staff.locator('#account-form input[name="current_password"]').fill(PASSWORD)
+        staff.locator('#account-form input[name="new_password"]').fill(PASSWORD+'updated')
+        staff.get_by_role('button',name='儲存並重新登入',exact=True).click()
+        expect(staff.locator('h1')).to_have_text('店家登入')
+        staff.locator('#username').fill('manager');staff.locator('#password').fill(PASSWORD+'updated')
+        staff.get_by_role('button',name='登入',exact=True).click();expect(staff.locator('#admin-tabs')).to_be_visible()
+        passed('owner can change username/password and use the new credentials')
+        assert not errors,errors
+        passed('mobile layout has no horizontal overflow; no uncaught JavaScript errors')
+        (OUT/'browser-result.json').write_text(json.dumps({'passed':len(checks),'checks':checks,'target':BASE},ensure_ascii=False,indent=2))
+    except Exception:
+        staff.screenshot(path=str(OUT/'failure-staff.png'),full_page=True)
+        customer.screenshot(path=str(OUT/'failure-customer.png'),full_page=True)
+        (OUT/'failure-staff.html').write_text(staff.content())
+        raise
+    finally:browser.close()
