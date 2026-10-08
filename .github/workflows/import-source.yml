@@ -1,0 +1,62 @@
+name: Import verified source
+on:
+  push:
+    branches: [main]
+    paths: ['.bootstrap/manifest.json']
+  workflow_dispatch:
+permissions:
+  contents: write
+concurrency:
+  group: gugu-source-import
+  cancel-in-progress: false
+jobs:
+  import:
+    if: github.repository == 'Miiduoa/gugu-ordering'
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.5'
+      - name: Verify and expand source
+        run: |
+          python - <<'PY'
+          import base64, hashlib, json, lzma, pathlib, shutil
+          root = pathlib.Path.cwd()
+          source = root / '.bootstrap'
+          manifest = json.loads((source / 'manifest.json').read_text())
+          chunks = []
+          for part in manifest['parts']:
+              data = (source / part['name']).read_bytes()
+              actual = hashlib.sha256(data).hexdigest()
+              assert actual == part['sha256'], f"Checksum mismatch: {part['name']}: {actual}"
+              chunks.append(data)
+          archive = base64.b64decode(b''.join(chunks), validate=True)
+          assert hashlib.sha256(archive).hexdigest() == manifest['archive_sha256']
+          files = json.loads(lzma.decompress(archive))
+          assert len(files) == manifest['files'] and len(files) > 20
+          for name, content in files.items():
+              rel = pathlib.PurePosixPath(name)
+              assert not rel.is_absolute() and '..' not in rel.parts
+              assert not any(x in rel.parts for x in ('.git', '.github', '.bootstrap', 'data', '.venv'))
+              assert rel.name not in ('.env', '.secret', 'local-access.txt')
+              target = root.joinpath(*rel.parts)
+              target.parent.mkdir(parents=True, exist_ok=True)
+              target.write_text(content, encoding='utf-8')
+          shutil.rmtree(source)
+          print(f'Verified and imported {len(files)} source files.')
+          PY
+      - name: Install and run regression tests
+        run: |
+          pip install -r requirements-dev.txt
+          python -m pytest -q
+          python scripts/check_staging.py
+          python scripts/build_preview.py
+      - name: Publish verified source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add --all
+          git commit -m 'Import ordering system with protected staging and verified tests'
+          git push origin HEAD:main
