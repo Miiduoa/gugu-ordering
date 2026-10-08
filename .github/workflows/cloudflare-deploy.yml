@@ -4,27 +4,54 @@ on:
     branches: [cloudflare-production]
     paths: ['.github/workflows/cloudflare-deploy.yml']
 permissions:
-  contents: read
+  contents: write
 concurrency:
   group: gugu-one-time-cloudflare-deploy
   cancel-in-progress: false
 jobs:
   deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 9
+    timeout-minutes: 12
     steps:
       - uses: actions/checkout@v6
       - uses: actions/setup-node@v6
         with:
           node-version: '24'
-      - name: Verify the app before provisioning anything
+      - name: Remove Cron dependency without removing privacy cleanup
+        run: |
+          python .deployment/prepare-free.py
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('.deployment/deploy-once.py');s=p.read_text()
+          s=s.replace("pathlib.Path.home()/'.config'/'wrangler',", "pathlib.Path.home()/'.config'/'.wrangler',pathlib.Path.home()/'.config'/'wrangler',")
+          p.write_text(s)
+          PY
+      - name: Build and verify the app before provisioning anything
         working-directory: cloudflare
         run: |
           npm ci --no-audit --no-fund
+          npx prettier --write 'src/*.mjs' 'tests/*.mjs' wrangler.jsonc
           npm run build
           npm test
-      - name: Install encrypted handoff support
-        run: python -m pip install cryptography
+      - name: Install browser and encrypted handoff support
+        run: |
+          python -m pip install cryptography -r cloudflare/requirements-test.txt
+          cd cloudflare
+          python -m playwright install --with-deps chromium
+      - name: Confirm complete customer and staff flow on workerd
+        working-directory: cloudflare
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: npm run test:browser
+      - name: Save only this application's verified source
+        run: |
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add cloudflare/src cloudflare/tests cloudflare/wrangler.jsonc cloudflare/README.md .deployment/deploy-once.py
+          if ! git diff --cached --quiet; then
+            git commit -m 'Support free deployment without Cron and verify privacy retention on staff heartbeat'
+            git push origin HEAD:cloudflare-production
+          fi
       - name: Official temporary deploy and public endpoint checks
         working-directory: cloudflare
         env:
@@ -37,3 +64,23 @@ jobs:
           path: deployment-result/private-result.enc.json
           retention-days: 1
           if-no-files-found: error
+      - name: Bundle source without credentials or database state
+        run: |
+          python - <<'PY'
+          import pathlib,zipfile,subprocess
+          files=subprocess.check_output(['git','ls-files','cloudflare'],text=True).splitlines()
+          with zipfile.ZipFile('gugu-cloudflare-complete.zip','w',zipfile.ZIP_DEFLATED) as z:
+              for name in files:
+                  p=pathlib.Path(name)
+                  if p.name=='wrangler.jsonc':z.writestr(name,subprocess.check_output(['git','show','HEAD:'+name]));continue
+                  if p.is_file():z.write(p,name)
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gugu-cloudflare-final-source
+          path: |
+            gugu-cloudflare-complete.zip
+            cloudflare/test-artifacts/browser-result.json
+            cloudflare/test-artifacts/customer-mobile.png
+            cloudflare/test-artifacts/staff-desktop.png
+          retention-days: 7
