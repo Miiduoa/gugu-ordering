@@ -1,0 +1,60 @@
+name: Cloudflare public endpoint check
+on:
+  push:
+    branches: [cloudflare-production]
+    paths: ['.github/workflows/cloudflare-public-check.yml']
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 4
+    steps:
+      - name: Inspect public HTTP responses
+        run: |
+          mkdir -p public-check
+          python - <<'PY'
+          import urllib.request,urllib.error,json,pathlib
+          base='https://gugu-ordering.thunder-paradox.workers.dev'
+          out=[]
+          for path in ['/','/api/health','/api/menu','/images/chicken.webp']:
+              try:
+                  r=urllib.request.urlopen(base+path,timeout=15)
+              except urllib.error.HTTPError as e:r=e
+              except Exception as e:
+                  out.append({'path':path,'error':str(e)});continue
+              body=r.read();headers={k:v for k,v in r.headers.items() if k.lower() not in ('set-cookie',)}
+              item={'path':path,'status':r.status,'headers':headers,'bytes':len(body)}
+              if 'image' not in r.headers.get('Content-Type',''):item['body']=body.decode(errors='replace')[:6000]
+              out.append(item)
+          pathlib.Path('public-check/http.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False,indent=2))
+          PY
+      - name: Install ordinary browser
+        run: |
+          python -m pip install playwright==1.57.0
+          python -m playwright install --with-deps chromium
+      - name: Observe the public page as a normal browser without bypassing any challenge
+        run: |
+          python - <<'PY'
+          from playwright.sync_api import sync_playwright
+          import json,pathlib
+          out={}
+          with sync_playwright() as p:
+              b=p.chromium.launch();page=b.new_page(viewport={'width':390,'height':844})
+              try:
+                  r=page.goto('https://gugu-ordering.thunder-paradox.workers.dev',wait_until='domcontentloaded',timeout=25000)
+                  page.wait_for_timeout(5000)
+                  out={'status':r.status if r else None,'url':page.url,'title':page.title(),'body':page.locator('body').inner_text()[:6000]}
+                  page.screenshot(path='public-check/public-mobile.png',full_page=True)
+              except Exception as e:out={'error':str(e)}
+              b.close()
+          pathlib.Path('public-check/browser.json').write_text(json.dumps(out,ensure_ascii=False,indent=2))
+          print(json.dumps(out,ensure_ascii=False))
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloudflare-public-check
+          path: public-check/
+          retention-days: 2
