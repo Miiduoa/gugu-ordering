@@ -1,0 +1,12 @@
+{
+  "archive_sha256": "451cb8a28e8eb036a135df07fa41f65a636601ce3042b122081226c0f50015c0",
+  "files": 43,
+  "parts": [
+    {"name":"part-00.b64","sha256":"cc5bb25dc91b62075abe8303ac931ac6a717d990cccdee20b733c220e5d16a08","length":16000},
+    {"name":"part-01.b64","sha256":"583ab8e998ba2c983f4bc4de7d5af405177ebbc36ccedce2d2528cb5dffa5dc1","length":16000},
+    {"name":"part-02.b64","sha256":"6394eda54ab7c3b6fad676a62cc31e6f38ad5e55ba30020ab5fda01bc4cabd97","length":16000},
+    {"name":"part-03.b64","sha256":"a9fb9d2dfcaf7dd3691401f683485f0bfec4b000629904bbc891e868aeb069d6","length":16000},
+    {"name":"part-04.b64","sha256":"947fe082c0b9d1b5225521035d3a59b82d42487fd4379333c19ea822613abec6","length":16000},
+    {"name":"part-05.b64","sha256":"3c6a1e607a2368119290a530cf6f36b9f17ec44394a8b88b5333976c5a70a8f4","length":13056}
+  ]
+}
