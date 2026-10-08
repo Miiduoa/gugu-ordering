@@ -1,0 +1,39 @@
+name: Cloudflare deployment handoff
+on:
+  push:
+    branches: [cloudflare-production]
+    paths: ['.github/workflows/cloudflare-deploy.yml']
+permissions:
+  contents: read
+concurrency:
+  group: gugu-one-time-cloudflare-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 9
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - name: Verify the app before provisioning anything
+        working-directory: cloudflare
+        run: |
+          npm ci --no-audit --no-fund
+          npm run build
+          npm test
+      - name: Install encrypted handoff support
+        run: python -m pip install cryptography
+      - name: Official temporary deploy and public endpoint checks
+        working-directory: cloudflare
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: python ../.deployment/deploy-once.py
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: private-cloudflare-deployment-result
+          path: deployment-result/private-result.enc.json
+          retention-days: 1
+          if-no-files-found: error
