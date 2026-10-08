@@ -1,0 +1,39 @@
+name: Ordering system verification
+on:
+  push:
+    branches: [main]
+    paths: ['app/**', 'static/**', 'scripts/**', 'tests/**', 'requirements*.txt', '.github/workflows/verify.yml']
+  pull_request:
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: gugu-verify-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  verify:
+    if: github.repository == 'Miiduoa/gugu-ordering'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.13.5'
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+      - name: Backend and staging security regression
+        run: |
+          python -m pytest -q
+          python scripts/check_staging.py
+      - name: Install browser
+        run: python -m playwright install --with-deps chromium
+      - name: Native HTTPS customer and staff acceptance
+        run: python scripts/check_cloud_browser.py
+      - name: Save verification evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: gugu-staging-acceptance
+          path: test-artifacts/
+          retention-days: 14
