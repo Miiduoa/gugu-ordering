@@ -1,0 +1,30 @@
+name: Recover Cloudflare source
+on:
+  push:
+    branches: [cloudflare-production]
+    paths: ['.github/workflows/recover-cloudflare.yml']
+permissions:
+  contents: read
+jobs:
+  recover:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Recover readable source from the interrupted upload
+        run: |
+          python - <<'PY'
+          import pathlib, base64, lzma, json
+          out=pathlib.Path('recovered'); out.mkdir()
+          raw=base64.b64decode(b''.join(p.read_bytes().strip() for p in sorted(pathlib.Path('.cf-import').glob('part-*.b64'))))
+          dec=lzma.LZMADecompressor()
+          text=dec.decompress(raw).decode('utf-8',errors='ignore')
+          (out/'partial.json.txt').write_text(text)
+          print('Recovered bytes:',len(text),'complete:',dec.eof)
+          print('Header:',text[:120])
+          # Only export this repository's already-uploaded source. Nothing is executed.
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: cloudflare-source-recovery
+          path: recovered/
+          retention-days: 2
