@@ -612,3 +612,30 @@ test("scheduled retention removes personal details but keeps cash totals", async
   assert.equal(row.total, 115);
   f.close();
 });
+
+test("staff heartbeat performs retention without cron triggers", async () => {
+  const f = await ready(),
+    o = (await f.order()).data;
+  await action(f, o, "cancel");
+  f.DB.sql.exec(
+    "UPDATE orders SET updated_at=0; DELETE FROM rates WHERE bucket='maintenance:privacy';",
+  );
+  const r = await f.request("/api/admin/heartbeat", {});
+  assert.equal(r.status, 200, JSON.stringify(r.data));
+  const row = f.DB.sql.prepare("SELECT * FROM orders").get();
+  assert.equal(row.phone, "");
+  assert.equal(row.name, "");
+  assert.equal(row.total, 115);
+  const lease = f.DB.sql
+    .prepare("SELECT expires FROM rates WHERE bucket='maintenance:privacy'")
+    .get();
+  assert.ok(lease.expires > NOW / 1000);
+  assert.equal((await f.request("/api/admin/heartbeat", {})).status, 200);
+  assert.equal(
+    f.DB.sql
+      .prepare("SELECT expires FROM rates WHERE bucket='maintenance:privacy'")
+      .get().expires,
+    lease.expires,
+  );
+  f.close();
+});

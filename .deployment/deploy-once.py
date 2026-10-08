@@ -30,7 +30,7 @@ try:
         record['public_checks']=checks
     # Only this deployment's temporary session is returned in the encrypted envelope.
     caches={}
-    for root in [pathlib.Path.home()/'.config'/'wrangler',pathlib.Path.home()/'.wrangler']:
+    for root in [pathlib.Path.home()/'.config'/'.wrangler',pathlib.Path.home()/'.config'/'wrangler',pathlib.Path.home()/'.wrangler']:
         if root.exists():
             for p in root.rglob('*'):
                 if p.is_file() and p.stat().st_size<200000 and p.suffix in ('.json','.toml'):

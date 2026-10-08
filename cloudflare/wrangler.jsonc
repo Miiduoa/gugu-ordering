@@ -19,9 +19,6 @@
   "vars": {
     "SETUP_KEY_HASH": "baf7cb37b275347ef0d600fbf96b49b6b19d61b23b699c3837b403b29bdab6db",
   },
-  "triggers": {
-    "crons": ["17 20 * * *"],
-  },
   "observability": {
     "enabled": false,
   },

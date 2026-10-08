@@ -253,6 +253,37 @@ async function maintenance(env, force = false) {
   );
   cleaned.set(env.DB, t);
 }
+async function privacyMaintenance(env, force = false) {
+  const t = now();
+  if (!force) {
+    const lease = await first(
+      env,
+      "INSERT INTO rates(bucket,count,expires) VALUES('maintenance:privacy',1,?) ON CONFLICT(bucket) DO UPDATE SET expires=excluded.expires WHERE rates.expires<=? RETURNING count",
+      t + 3600,
+      t,
+    );
+    if (!lease) return;
+  }
+  const s = await settings(env);
+  try {
+    await env.DB.batch([
+      stmt(env, "DELETE FROM sessions WHERE expires<?", t),
+      stmt(
+        env,
+        "DELETE FROM rates WHERE expires<? AND bucket<>'maintenance:privacy'",
+        t,
+      ),
+      stmt(
+        env,
+        "UPDATE orders SET name='',phone='',note='',items=(SELECT json_group_array(json_remove(value,'$.note')) FROM json_each(items)) WHERE updated_at<? AND status IN ('completed','cancelled','rejected','no_show') AND (name<>'' OR phone<>'')",
+        t - s.privacy_days * 86400,
+      ),
+    ]);
+  } catch (e) {
+    await run(env, "DELETE FROM rates WHERE bucket='maintenance:privacy'");
+    throw e;
+  }
+}
 async function rate(env, key, max = 20, seconds = 300) {
   let t = now();
   let row = await first(
@@ -779,6 +810,7 @@ async function route(req, env, ctx) {
   let u = await auth(req, env);
   if (path === "/api/admin/heartbeat" && method === "POST") {
     if (u.role === "kitchen") fail(403, "只有櫃台或店長可開放接單");
+    await privacyMaintenance(env);
     await run(
       env,
       "INSERT INTO presence(user_id,seen) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET seen=excluded.seen",
@@ -1358,16 +1390,6 @@ export default {
   async scheduled(controller, env, ctx) {
     await init(env);
     await maintenance(env, true);
-    let t = now(),
-      s = await settings(env);
-    await env.DB.batch([
-      stmt(env, "DELETE FROM sessions WHERE expires<?", t),
-      stmt(env, "DELETE FROM rates WHERE expires<?", t),
-      stmt(
-        env,
-        "UPDATE orders SET name='',phone='',note='',items=(SELECT json_group_array(json_remove(value,'$.note')) FROM json_each(items)) WHERE updated_at<? AND status IN ('completed','cancelled','rejected','no_show') AND (name<>'' OR phone<>'')",
-        t - s.privacy_days * 86400,
-      ),
-    ]);
+    await privacyMaintenance(env, true);
   },
 };

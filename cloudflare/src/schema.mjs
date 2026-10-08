@@ -18,4 +18,6 @@ export const schema = [
   `CREATE TABLE IF NOT EXISTS tx_guards(pass INTEGER NOT NULL CHECK(pass=1))`,
   `CREATE TRIGGER IF NOT EXISTS reserve_stock AFTER INSERT ON orders BEGIN UPDATE inventory SET remaining=remaining-COALESCE((SELECT CAST(value AS INTEGER) FROM json_each(NEW.resources) WHERE key=inventory.product_id),0) WHERE day=NEW.day AND product_id IN (SELECT key FROM json_each(NEW.resources)); END`,
   `CREATE TRIGGER IF NOT EXISTS release_stock AFTER UPDATE OF status ON orders WHEN OLD.status IN ('pending','accepted') AND NEW.status IN ('cancelled','rejected','no_show') BEGIN UPDATE inventory SET remaining=remaining+COALESCE((SELECT CAST(value AS INTEGER) FROM json_each(OLD.resources) WHERE key=inventory.product_id),0) WHERE day=OLD.day AND product_id IN (SELECT key FROM json_each(OLD.resources)); END`,
+  `CREATE INDEX IF NOT EXISTS orders_retention ON orders(updated_at)`,
+  `CREATE INDEX IF NOT EXISTS rates_expiry ON rates(expires)`,
 ];
