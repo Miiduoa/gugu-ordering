@@ -12,3 +12,10 @@ __pycache__/
 .pytest_cache/
 .DS_Store
 *.log
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+test-artifacts/
+*-backup.sql
