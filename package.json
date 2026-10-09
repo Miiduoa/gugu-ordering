@@ -1,0 +1,16 @@
+{
+  "name": "gugu-ordering-cloudflare",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "engines": { "node": ">=22.16.0" },
+  "scripts": {
+    "build": "node scripts/verify-cloudflare-entry.mjs && npm --prefix cloudflare run build",
+    "test": "node --test scripts/verify-cloudflare-entry.test.mjs && npm --prefix cloudflare test",
+    "dev": "wrangler dev",
+    "deploy": "npm run build && wrangler deploy",
+    "check:live": "node scripts/check-live.mjs"
+  },
+  "devDependencies": { "wrangler": "4.148.0", "prettier": "3.6.2" },
+  "cloudflare": { "bindings": { "DB": { "description": "穀穀專用 D1；維持 Free，不選其他專案資料庫。" } } }
+}

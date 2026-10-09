@@ -1,0 +1,16 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "gugu-ordering",
+  "main": "cloudflare/src/worker.mjs",
+  "compatibility_date": "2026-10-08",
+  "workers_dev": true,
+  "assets": {
+    "directory": "./cloudflare/public",
+    "binding": "ASSETS",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [{"binding": "DB", "database_name": "gugu-ordering-db"}],
+  "vars": {"SETUP_KEY_HASH": "baf7cb37b275347ef0d600fbf96b49b6b19d61b23b699c3837b403b29bdab6db"},
+  "observability": {"enabled": false}
+}

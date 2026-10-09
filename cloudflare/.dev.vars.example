@@ -1,0 +1,2 @@
+# No secret is required to deploy. SETUP_KEY_HASH is a one-way hash in wrangler.jsonc.
+# The matching random activation code is delivered privately, never stored in this repository.

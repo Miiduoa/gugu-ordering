@@ -1,0 +1,53 @@
+name: Verify production deployment entry
+on:
+  push:
+    branches: [main]
+    paths: ['cloudflare/**', 'package.json', 'package-lock.json', 'wrangler.jsonc', 'scripts/*cloudflare*', 'scripts/check-live.mjs', '.github/workflows/cloudflare-entry-check.yml']
+permissions:
+  contents: read
+  deployments: read
+concurrency:
+  group: gugu-production-entry-check
+  cancel-in-progress: true
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+      - run: npm ci --no-audit --no-fund
+      - name: Verify production assets and transaction regression
+        run: |
+          npm run build
+          npm test
+      - name: Compile production Worker without deploying resources
+        env:
+          WRANGLER_SEND_METRICS: 'false'
+        run: npx wrangler deploy --dry-run --outdir /tmp/gugu-worker-build
+      - name: Look up existing deployment URLs without changing resources
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          python - <<'PY'
+          import os,json,urllib.request
+          def get(path):
+              req=urllib.request.Request('https://api.github.com/repos/'+os.environ['REPO']+path,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(req,timeout=20) as r:return json.load(r)
+          urls=set()
+          try:
+              for dep in get('/deployments?per_page=20'):
+                  for status in get('/deployments/'+str(dep['id'])+'/statuses?per_page=3'):
+                      u=status.get('environment_url') or status.get('target_url')
+                      if u: urls.add(u)
+              print(json.dumps({'existing_deployment_urls':sorted(urls)},ensure_ascii=False))
+          except Exception as e:print('Deployment URL lookup unavailable:',type(e).__name__)
+          PY
+      - name: Record verification boundary
+        run: |
+          echo 'Source, tests and bundle verification only. Public site verification still requires the actual deployed URL.' >> "$GITHUB_STEP_SUMMARY"

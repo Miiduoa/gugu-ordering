@@ -1,0 +1,10 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import { verify } from './verify-cloudflare-entry.mjs';
+const config = () => JSON.parse(readFileSync(new URL('../wrangler.jsonc', import.meta.url), 'utf8'));
+test('root deployment uses production API and frontend', () => assert.equal(verify(config()), true));
+test('offline HTML cannot be the Worker entry', () => { const c=config(); c.main='preview/index.html'; assert.throws(() => verify(c)); });
+test('preview assets cannot be published as production', () => { const c=config(); c.assets.directory='./preview'; assert.throws(() => verify(c)); });
+test('API must not fall back to a static SPA', () => { const c=config(); c.assets.run_worker_first=[]; assert.throws(() => verify(c)); });
+test('missing database binding prevents a passing build', () => { const c=config(); c.d1_databases=[]; assert.throws(() => verify(c)); });

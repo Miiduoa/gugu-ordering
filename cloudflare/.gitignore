@@ -1,0 +1,16 @@
+node_modules/
+.wrangler/
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+.env
+.env.*
+!*.example
+test-artifacts/
+*.sqlite*
+*.pem
+*.key
+gugu-backup-*.json
+gugu-full-backup.sql
+restore-*.sql
+coverage/

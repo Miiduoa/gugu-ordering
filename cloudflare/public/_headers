@@ -1,0 +1,14 @@
+/*
+  X-Content-Type-Options: nosniff
+  X-Frame-Options: DENY
+  Referrer-Policy: same-origin
+  Permissions-Policy: camera=(), microphone=(), geolocation=()
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'
+/static/*
+  Cache-Control: public, max-age=300
+/images/*
+  Cache-Control: public, max-age=86400
+/staff/*
+  X-Robots-Tag: noindex, nofollow
+/setup
+  X-Robots-Tag: noindex, nofollow
